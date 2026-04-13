@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>ACS Emulator Core 0.3</title>
+<style>
+body {
+  margin: 0;
+  background: #0a0f14;
+  color: #00ff99;
+  font-family: monospace;
+  display: flex;
+  height: 100vh;
+}
+
+#side {
+  width: 260px;
+  background: #111826;
+  padding: 10px;
+}
+
+button {
+  width: 100%;
+  margin-top: 6px;
+  padding: 10px;
+  background: #1f2a3a;
+  border: 1px solid #00ff99;
+  color: white;
+}
+
+canvas {
+  image-rendering: pixelated;
+  border: 3px solid #00ff99;
+}
+</style>
+</head>
+<body>
+
+<div id="side">
+<h2>🕹️ ACS CORE</h2>
+
+<input type="file" id="rom"><br>
+
+<button onclick="loadROM()">Load ROM</button>
+<button onclick="start()">Start</button>
+<button onclick="stop()">Stop</button>
+
+<pre id="info">Idle</pre>
+</div>
+
+<canvas id="screen" width="160" height="144"></canvas>
+
+<script>
+
+/////////////////////////////////////////////////////
+// 🧠 MEMORY BUS
+/////////////////////////////////////////////////////
+let mem = new Uint8Array(0x10000);
+let rom = null;
+
+/////////////////////////////////////////////////////
+// 🧠 CPU STATE
+/////////////////////////////////////////////////////
+let CPU = {
+  A:0,B:0,C:0,D:0,E:0,H:0,L:0,
+  F:0,
+  PC:0x0100,
+  running:false
+};
+
+/////////////////////////////////////////////////////
+// 📦 ROM LOADER
+/////////////////////////////////////////////////////
+function loadROM(){
+  const f = document.getElementById("rom").files[0];
+  const r = new FileReader();
+
+  r.onload = e=>{
+    rom = new Uint8Array(e.target.result);
+
+    mem.fill(0);
+    for(let i=0;i<rom.length;i++) mem[i]=rom[i];
+
+    CPU.PC = 0x0100;
+
+    document.getElementById("info").innerText =
+      "ROM loaded ✔ " + rom.length + " bytes";
+  };
+
+  r.readAsArrayBuffer(f);
+}
+
+/////////////////////////////////////////////////////
+// ⚙️ INSTRUCTION DISPATCH TABLE (REAL STYLE CORE)
+/////////////////////////////////////////////////////
+const opcodes = {
+  0x00: ()=>CPU.PC++,
+  0x3E: ()=>{ CPU.A = mem[CPU.PC+1]; CPU.PC+=2; },
+  0x06: ()=>{ CPU.B = mem[CPU.PC+1]; CPU.PC+=2; },
+  0x0E: ()=>{ CPU.C = mem[CPU.PC+1]; CPU.PC+=2; },
+
+  0x80: ()=>{
+    CPU.A = (CPU.A + CPU.B) & 0xFF;
+    CPU.PC++;
+  },
+
+  0xEA: ()=>{
+    let addr = mem[CPU.PC+1] | (mem[CPU.PC+2]<<8);
+    mem[addr] = CPU.A;
+    CPU.PC += 3;
+  },
+
+  0xC3: ()=>{
+    CPU.PC = mem[CPU.PC+1] | (mem[CPU.PC+2]<<8);
+  }
+};
+
+/////////////////////////////////////////////////////
+// ⚙️ CPU STEP (REAL DISPATCH EXECUTION)
+/////////////////////////////////////////////////////
+function step(){
+  const op = mem[CPU.PC];
+
+  const handler = opcodes[op];
+
+  if(handler) handler();
+  else CPU.PC++; // unknown opcode fallback
+
+  render();
+}
+
+/////////////////////////////////////////////////////
+// 🖥️ VERY SIMPLE OUTPUT (READY FOR REAL PPU LATER)
+/////////////////////////////////////////////////////
+const canvas = document.getElementById("screen");
+const ctx = canvas.getContext("2d");
+let img = ctx.createImageData(160,144);
+
+function render(){
+  for(let i=0;i<160*144;i++){
+    let v = (mem[0xC000 + (i % 0x2000)] + CPU.A) & 0xFF;
+
+    img.data[i*4+0]=v;
+    img.data[i*4+1]=v;
+    img.data[i*4+2]=v;
+    img.data[i*4+3]=255;
+  }
+
+  ctx.putImageData(img,0,0);
+
+  document.getElementById("info").innerText =
+    `PC:${CPU.PC}\nA:${CPU.A} B:${CPU.B}`;
+}
+
+/////////////////////////////////////////////////////
+// ▶ LOOP
+/////////////////////////////////////////////////////
+let loop;
+
+function start(){
+  if(!rom) return alert("Load ROM first");
+  if(CPU.running) return;
+
+  CPU.running = true;
+  loop = setInterval(step, 2);
+}
+
+function stop(){
+  CPU.running = false;
+  clearInterval(loop);
+}
+
+</script>
+
+</body>
+</html>
