@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ACS Gameboy emu 0.5</title>
+<style>
+body {
+  background: #000;
+  color: #00ff99;
+  font-family: monospace;
+  text-align: center;
+}
+
+canvas {
+  border: 4px solid #00ff99;
+  margin-top: 15px;
+  image-rendering: pixelated;
+}
+
+.box {
+  width: 400px;
+  margin: auto;
+  padding: 10px;
+  border: 1px solid #00ff99;
+}
+
+button {
+  background: #00ff99;
+  border: none;
+  padding: 6px;
+  margin: 3px;
+}
+</style>
+</head>
+<body>
+
+<h1>🕹️ ACS Gameboy emu 0.5</h1>
+
+<canvas id="screen" width="160" height="144"></canvas>
+
+<div class="box">
+<input type="file" id="rom"><br>
+<button onclick="loadROM()">Load ROM</button>
+<button onclick="start()">Start</button>
+<button onclick="stop()">Stop</button>
+</div>
+
+<div class="box" id="info">Waiting...</div>
+
+<script>
+// ================= MEMORY =================
+let mem = new Uint8Array(0x10000);
+let rom = null;
+
+// ================= CPU =================
+let CPU = {
+  A:0,B:0,C:0,D:0,E:0,H:0,L:0,
+  F:0,
+  PC:0x0100,
+  running:false
+};
+
+let interval;
+
+// ================= SCREEN =================
+const canvas = document.getElementById("screen");
+const ctx = canvas.getContext("2d");
+let img = ctx.createImageData(160,144);
+
+// fake VRAM tile buffer
+let vramDisplay = new Uint8Array(160*144);
+
+// ================= LOAD ROM =================
+function loadROM(){
+  const file = document.getElementById("rom").files[0];
+  if(!file) return alert("Load ROM");
+
+  const r = new FileReader();
+  r.onload = e=>{
+    rom = new Uint8Array(e.target.result);
+
+    for(let i=0;i<rom.length;i++){
+      mem[i] = rom[i];
+    }
+
+    CPU.PC = 0x0100;
+
+    document.getElementById("info").innerText =
+      "ROM loaded ✔ " + rom.length + " bytes";
+  };
+  r.readAsArrayBuffer(file);
+}
+
+// ================= CPU STEP =================
+function step(){
+  let op = mem[CPU.PC];
+
+  switch(op){
+
+    case 0x00: CPU.PC++; break;
+
+    case 0x3E: // LD A,d8
+      CPU.A = mem[CPU.PC+1];
+      CPU.PC += 2;
+      break;
+
+    case 0x06: // LD B,d8
+      CPU.B = mem[CPU.PC+1];
+      CPU.PC += 2;
+      break;
+
+    case 0x0E:
+      CPU.C = mem[CPU.PC+1];
+      CPU.PC += 2;
+      break;
+
+    case 0x80: // ADD A,B
+      CPU.A = (CPU.A + CPU.B) & 0xFF;
+      CPU.PC++;
+      break;
+
+    case 0xC3: // JP
+      CPU.PC = mem[CPU.PC+1] | (mem[CPU.PC+2]<<8);
+      break;
+
+    case 0xE0: // LD (FF00+n),A  -> fake VRAM output hook
+      let addr = 0xFF00 + mem[CPU.PC+1];
+      mem[addr] = CPU.A;
+
+      // map to screen noise (fake GPU effect)
+      for(let i=0;i<vramDisplay.length;i++){
+        vramDisplay[i] = CPU.A;
+      }
+
+      CPU.PC += 2;
+      break;
+
+    default:
+      CPU.PC++;
+      break;
+  }
+
+  render();
+}
+
+// ================= RENDER =================
+function render(){
+  for(let i=0;i<vramDisplay.length;i++){
+    let v = vramDisplay[i];
+
+    img.data[i*4+0] = v;
+    img.data[i*4+1] = v;
+    img.data[i*4+2] = v;
+    img.data[i*4+3] = 255;
+  }
+
+  ctx.putImageData(img,0,0);
+
+  document.getElementById("info").innerText =
+    `CPU RUNNING\nPC:${CPU.PC.toString(16)} A:${CPU.A}`;
+}
+
+// ================= LOOP =================
+function start(){
+  if(!rom) return alert("Load ROM first");
+  if(CPU.running) return;
+
+  CPU.running = true;
+  interval = setInterval(step, 4);
+}
+
+function stop(){
+  CPU.running = false;
+  clearInterval(interval);
+}
+</script>
+
+</body>
+</html>
